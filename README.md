@@ -4,7 +4,8 @@
 
 Flight software and firmware for **CAN7U-SAT**, Team VSAT-064's entry in CanSat India 2026. This repository contains:
 
-- the **gyro-based control and actuation algorithms** that steer the glider parachute during descent,
+- the **gyro-based attitude control** (PID, sensor fusion, control-moment-gyro actuation) that stabilises the payload,
+- the **control and actuation algorithms** that steer the glider parachute during descent,
 - the **sensor integration code** that runs on the main MCU,
 - the **communication system** that links the CanSat to the ground station, and
 - the **failsafe logic** that keeps every subsystem operating safely.
@@ -18,9 +19,10 @@ The main MCU coordinates all subsystems. It reads the sensors, runs the control 
 - [System Overview](#system-overview)
 - [Subsystems](#subsystems)
   - [Actuation and Controls](#1-actuation-and-controls)
-  - [Sensor Fusion and Integration](#2-sensor-fusion-and-integration)
-  - [Communication](#3-communication)
-  - [Failsafes](#4-failsafes)
+  - [Gyro Attitude Control](#2-gyro-attitude-control)
+  - [Sensor Fusion and Integration](#3-sensor-fusion-and-integration)
+  - [Communication](#4-communication)
+  - [Failsafes](#5-failsafes)
 - [Sensor Suite](#sensor-suite)
 - [Repository Structure](#repository-structure)
 - [Getting Started](#getting-started)
@@ -38,8 +40,8 @@ The main MCU coordinates all subsystems. It reads the sensors, runs the control 
  Sensors ───►│  Sensor fusion ──► State estimate        │
  (Alt, Gyro, │                        │                 │
   GNSS, UV)  │                        ▼                 │
-             │                 Control algorithm ───────┼──► Actuators
-             │                        │                 │    (glider parachute)
+             │                 Control algorithm ───────┼──► Actuators (gyro gimbal,
+             │                        │                 │    glider parachute)
              │                        ▼                 │
              │  Failsafe monitor ◄── Health checks      │
              │                                          │
@@ -51,7 +53,7 @@ Each cycle of the flight loop does four things:
 
 1. **Read** raw data from every sensor.
 2. **Estimate** altitude, attitude, and position by fusing those readings.
-3. **Control** the parachute actuators based on that estimate and the target heading.
+3. **Control** attitude with the gyro PID loop, and steer the parachute toward the target heading.
 4. **Report** telemetry over LoRa, with failsafes watching every stage.
 
 ---
@@ -64,11 +66,31 @@ Each cycle of the flight loop does four things:
 
 These algorithms steer the glider parachute during descent.
 
-- Gyro-based attitude and rate feedback to stabilise the payload
 - Actuation commands that change the parachute's glide path and heading
+- Heading commands passed to the gyro attitude controller
 - Control loop tuning and actuator limits
 
-### 2. Sensor Fusion and Integration
+### 2. Gyro Attitude Control
+
+[`gyro/`](gyro/) · [details](gyro/README.md)
+
+PID control that holds the payload's attitude steady. It is based on the active-gyroscope approach in [James Bruton's "How this Active Gyroscope Balances"](https://youtu.be/UVJx8T8wTQA). A spinning flywheel sits in a servo-driven gimbal. Tilting the gimbal makes the flywheel precess, and that precession puts a torque on the body.
+
+```
+IMU ──► Complementary filter ──► Angle PID ──► Rate PID ──► Gimbal servos + yaw servo
+        (roll, pitch, yaw)       (outer)       (inner)      (CMG)       (parachute)
+```
+
+- **200 Hz control loop** with cascaded angle → rate PID on roll, pitch and yaw
+- **Complementary filter** that ignores the accelerometer during deployment shocks and canopy swing
+- **PID protections:** derivative on measurement, filtered D term, anti-windup and output clamping
+- **IMU failsafe:** if the IMU stops responding, every servo is centred and the PID state is reset
+- **Single config file:** all gains, pins and limits live in [`gyro/config.h`](gyro/config.h)
+- **Arduino framework:** runs on ESP32, Teensy or STM32 until the final MCU is chosen
+
+See [`gyro/README.md`](gyro/README.md) for the file layout, build steps and the tuning procedure.
+
+### 3. Sensor Fusion and Integration
 
 Drivers and integration code for every onboard sensor, plus the fusion logic that combines them into a single state estimate for the controller.
 
@@ -76,7 +98,7 @@ Drivers and integration code for every onboard sensor, plus the fusion logic tha
 - Periodic sampling and data validation
 - Altitude, attitude, and position estimation
 
-### 3. Communication
+### 4. Communication
 
 [`communication/`](communication/)
 
@@ -86,7 +108,7 @@ A **LoRa** radio link carries telemetry to the ground station.
 - Transmission scheduling
 - Ground-station receive and decode
 
-### 4. Failsafes
+### 5. Failsafes
 
 Safety logic that detects faults and moves the system into a safe state.
 
@@ -114,7 +136,8 @@ Safety logic that detects faults and moves the system into a safe state.
 ```
 Vsat/
 ├── communication/   # LoRa telemetry and ground-station link
-├── controls/        # Gyro-based control and parachute actuation
+├── controls/        # Parachute steering and actuation
+├── gyro/            # PID attitude control, IMU fusion, gimbal/flywheel actuation
 └── README.md
 ```
 
