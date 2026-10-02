@@ -25,7 +25,7 @@ The main MCU coordinates all subsystems. It reads the sensors, runs the control 
   - [Sensor Fusion and Integration](#4-sensor-fusion-and-integration)
   - [Communication](#5-communication)
   - [Failsafes](#6-failsafes)
-- [Sensor Suite](#sensor-suite)
+- [Hardware Components](#hardware-components)
 - [Repository Structure](#repository-structure)
 - [Getting Started](#getting-started)
 - [Contributing](#contributing)
@@ -154,16 +154,22 @@ Safety logic that detects faults and moves the system into a safe state.
 
 ---
 
-## Sensor Suite
+## Hardware Components
 
-| Sensor           | Purpose                                                        |
-| ---------------- | -------------------------------------------------------------- |
-| **Altimeter**    | Barometric altitude and descent rate                           |
-| **Gyroscope**    | Angular rates for attitude estimation and parachute control    |
-| **GNSS**         | Global position, ground track, and heading                     |
-| **UV sensor**    | Ultraviolet measurements collected during the mission          |
+| Component          | Part                                                                                   | Purpose                                                              |
+| ------------------ | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **MCU**            | ESP32-S3-N8R2 (8 MB flash, 2 MB PSRAM)                                                 | Main flight computer: sensors, control loops, actuators, telemetry   |
+| **PID controller** | Multispan UTC-221P dual-display universal PID controller, 68×68 (J / K / PT-100 2- or 3-wire, configurable) | Temperature PID control                                 |
+| **Altimeter**      | GY-63 MS5611-01BA03 high-precision pressure sensor module                              | Barometric altitude and descent rate                                 |
+| **IMU**            | Adafruit MPU-9250 9-DOF (MPU-6500 accel/gyro + AK8963 magnetometer, I2C `0x68`)        | Attitude, angular rates, heading, and separation/landing detection   |
+| **GNSS**           | *TBD*                                                                                  | Global position, ground track, and heading                           |
+| **UV sensor**      | *TBD*                                                                                  | Ultraviolet measurements collected during the mission                |
+| **Communication**  | LoRa transceiver (*model TBD*)                                                         | Telemetry link to the ground station                                 |
 
-**Communication module:** LoRa transceiver
+> **Firmware status:**
+> - **IMU:** the drivers in [`gyro/`](gyro/) and [`recovery/`](recovery/) were written for an MPU6050. The MPU-9250's accel/gyro core (MPU-6500) uses the same registers, so they should work with it. Confirm this on the bench. The AK8963 magnetometer isn't used yet. Adding it will give the recovery guidance an absolute heading.
+> - **Barometer:** [`recovery/`](recovery/) still reads a BMP280. It needs porting to the MS5611.
+> - **Servos:** on the ESP32-S3, use the `ESP32Servo` library in place of `Servo`.
 
 ---
 
