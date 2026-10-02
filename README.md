@@ -26,6 +26,7 @@ The main MCU coordinates all subsystems. It reads the sensors, runs the control 
   - [Communication](#5-communication)
   - [Failsafes](#6-failsafes)
 - [Hardware Components](#hardware-components)
+- [Arduino Libraries](#arduino-libraries)
 - [Repository Structure](#repository-structure)
 - [Getting Started](#getting-started)
 - [Contributing](#contributing)
@@ -170,6 +171,28 @@ Safety logic that detects faults and moves the system into a safe state.
 > - **IMU:** the drivers in [`gyro/`](gyro/) and [`recovery/`](recovery/) were written for an MPU6050. The MPU-9250's accel/gyro core (MPU-6500) uses the same registers, so they should work with it. Confirm this on the bench. The AK8963 magnetometer isn't used yet. Adding it will give the recovery guidance an absolute heading.
 > - **Barometer:** [`recovery/`](recovery/) still reads a BMP280. It needs porting to the MS5611.
 > - **Servos:** on the ESP32-S3, use the `ESP32Servo` library in place of `Servo`.
+
+---
+
+## Arduino Libraries
+
+These are the libraries the code uses right now. Install them with the Arduino IDE Library Manager (**Sketch → Include Library → Manage Libraries**).
+
+| Library | Author | Used in | Purpose | Install |
+| ------- | ------ | ------- | ------- | ------- |
+| `Wire` | Arduino / board core | `gyro/`, `recovery/` | I2C bus for the IMU and barometer | Built in |
+| `Servo` | Arduino | `gyro/`, `recovery/` | Servo and ESC PWM output | Built in on AVR. **Not available on ESP32-S3**, see `ESP32Servo` below |
+| `ESP32Servo` | Kevin Harrington, John K. Bennett | `gyro/`, `recovery/` (on ESP32-S3) | Servo/ESC PWM on the ESP32-S3; replaces `Servo` | Library Manager |
+| `TinyGPSPlus` | Mikal Hart | `recovery/` | NMEA parsing for GNSS position, altitude and satellite count | Library Manager |
+| `Adafruit BMP280 Library` | Adafruit | `recovery/` | Barometer driver (placeholder until the MS5611 port) | Library Manager |
+| `Adafruit Unified Sensor` | Adafruit | `recovery/` (dependency) | Required by the BMP280 library | Library Manager (offered automatically) |
+| `Adafruit BusIO` | Adafruit | `recovery/` (dependency) | Required by the BMP280 library | Library Manager (offered automatically) |
+
+**Board package:** install **esp32 by Espressif Systems** from the Boards Manager, then select **ESP32S3 Dev Module**.
+
+**No library needed:** the MPU-9250 IMU is driven directly over I2C (`gyro/imu.cpp`, `recovery/sensors.cpp`), and the PID, filters and guidance maths are written from scratch.
+
+**Planned:** once the barometer is ported, an MS5611 library (for example `MS5611` by Rob Tillaart) will replace the three Adafruit BMP280 libraries.
 
 ---
 
