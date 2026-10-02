@@ -6,6 +6,7 @@ Flight software and firmware for **CAN7U-SAT**, Team VSAT-064's entry in CanSat 
 
 - the **gyro-based attitude control** (PID, sensor fusion, control-moment-gyro actuation) that stabilises the payload,
 - the **control and actuation algorithms** that steer the glider parachute during descent,
+- the **secondary recovery and navigation** system that cuts the primary parachute, deploys a parafoil and glides to the landing target,
 - the **sensor integration code** that runs on the main MCU,
 - the **communication system** that links the CanSat to the ground station, and
 - the **failsafe logic** that keeps every subsystem operating safely.
@@ -20,9 +21,10 @@ The main MCU coordinates all subsystems. It reads the sensors, runs the control 
 - [Subsystems](#subsystems)
   - [Actuation and Controls](#1-actuation-and-controls)
   - [Gyro Attitude Control](#2-gyro-attitude-control)
-  - [Sensor Fusion and Integration](#3-sensor-fusion-and-integration)
-  - [Communication](#4-communication)
-  - [Failsafes](#5-failsafes)
+  - [Secondary Recovery and Navigation](#3-secondary-recovery-and-navigation)
+  - [Sensor Fusion and Integration](#4-sensor-fusion-and-integration)
+  - [Communication](#5-communication)
+  - [Failsafes](#6-failsafes)
 - [Sensor Suite](#sensor-suite)
 - [Repository Structure](#repository-structure)
 - [Getting Started](#getting-started)
@@ -90,7 +92,41 @@ IMU ──► Complementary filter ──► Angle PID ──► Rate PID ──
 
 See [`gyro/README.md`](gyro/README.md) for the file layout, build steps and the tuning procedure.
 
-### 3. Sensor Fusion and Integration
+### 3. Secondary Recovery and Navigation
+
+[`recovery/`](recovery/) · [details](recovery/README.md)
+
+After ejection at about 1000 m, the CanSat descends on the primary parachute and cuts it away at 600 m. It then deploys a steerable parafoil and glides to the landing target.
+
+```
+WAIT_EJECTION ─► DESCEND_PRIMARY ─► CONFIRM_SEPARATION ─► DEPLOY_CANOPY ─► GUIDANCE ─► FLARE ─► LANDED
+                 (cut at 600 m)     (~0 g, 2 s timeout)   (inflate, settle) (heading PID)
+```
+
+- **Altitude fusion:** uses the barometer, cross-checked against GNSS, with dead reckoning as the last fallback
+- **Navigation:** steers from GNSS positions in local X/Y metres, using a gyro + ground-track heading filter and a wind estimate
+- **Altitude-budget control:** `TOO_HIGH` mode turns harder to burn off altitude, and `TOO_LOW` mode flies straight to stretch the glide
+- **Steering:** a heading PID drives the pull-only left/right brake lines
+- **Failsafes:** brakes go neutral (wings level) if sensor data is stale, every stage has a timeout, and the servos are powered off after landing
+
+| Stage | Trigger | Action |
+| --- | --- | --- |
+| Primary descent | Altitude ≤ 600 m (3 readings in a row) | Fire the primary-parachute cutter |
+| Confirm separation | About 0 g for 150 ms, or 2 s timeout | Move on to canopy deployment |
+| Deploy canopy | Descent rate < 3 m/s, then the swing settles | Release the parafoil, then start guidance |
+| Guidance | Altitude above 8 m | Heading PID steers the brakes, in `TOO_HIGH` / `ON_TARGET` / `TOO_LOW` mode |
+| Flare | Altitude below 8 m | Pull both brakes fully |
+| Landed | Shock > 3 g, or no descent for 2 s | Cut servo power and log the miss distance |
+
+**Changes from the original pseudocode:** the brake direction is flipped (the pseudocode would have turned the canopy away from the target), the barometer is used even when GNSS is unavailable, a `WAIT_EJECTION` state detects ejection, and timeouts were added to the canopy stages.
+
+**In simulation** with stand-in sensors, a full flight from ejection landed about 2–3 m from the target in light wind, including with a 5 s GNSS outage. With a headwind that put the target out of reach, it switched to `TOO_LOW` and flew straight to stretch the glide.
+
+**Before flight**, set `TARGET_LAT` / `TARGET_LON` in [`recovery/config.h`](recovery/config.h), and replace the glide ratio and descent rates there with drop-test values.
+
+See [`recovery/README.md`](recovery/README.md) for the guidance maths, file layout, build steps and the full pre-flight checklist.
+
+### 4. Sensor Fusion and Integration
 
 Drivers and integration code for every onboard sensor, plus the fusion logic that combines them into a single state estimate for the controller.
 
@@ -98,7 +134,7 @@ Drivers and integration code for every onboard sensor, plus the fusion logic tha
 - Periodic sampling and data validation
 - Altitude, attitude, and position estimation
 
-### 4. Communication
+### 5. Communication
 
 [`communication/`](communication/)
 
@@ -108,7 +144,7 @@ A **LoRa** radio link carries telemetry to the ground station.
 - Transmission scheduling
 - Ground-station receive and decode
 
-### 5. Failsafes
+### 6. Failsafes
 
 Safety logic that detects faults and moves the system into a safe state.
 
@@ -138,6 +174,7 @@ Vsat/
 ├── communication/   # LoRa telemetry and ground-station link
 ├── controls/        # Parachute steering and actuation
 ├── gyro/            # PID attitude control, IMU fusion, gimbal/flywheel actuation
+├── recovery/        # Primary cut, parafoil deployment, guided glide and landing
 └── README.md
 ```
 
