@@ -137,7 +137,7 @@ Drivers and integration code for every onboard sensor, plus the fusion logic tha
 
 ### 5. Communication
 
-[`communication/`](communication/)
+[`communication/`](communication/) · [Net ID / PAN ID setup](communication/lora-net-id-pan-id.md)
 
 A **LoRa** radio link carries telemetry to the ground station.
 
