@@ -8,6 +8,17 @@
 // Reference location: set TARGET_LAT/TARGET_LON, or send "lat,lon" or "here"
 // over USB Serial, LoRa or XBee.
 //
+// Init order: servos (brakes neutral), I2C sensors (IMU, barometer, INA260),
+// UV, GNSS, LoRa, XBee, SD card last. Then IMU/barometer calibration.
+//
+// LoRa link: the ground station sends "CONNECT". The CanSat replies with an
+// ACK packet carrying the init status, and only then starts LoRa telemetry.
+// Sending "CONNECT" again repeats the ACK. After that LoRa keeps listening for:
+//   START        send telemetry on LoRa and XBee (default)
+//   STOP         standby: no telemetry; brakes and SD logging keep running
+//   RECALIBRATE  brakes neutral, recalibrate IMU and barometer, back to the previous mode
+// Each command is answered with "ACK,<command>".
+//
 // Arduino IDE: Tools -> USB CDC On Boot -> Enabled, and use the board's USB
 // port. Serial is then USB, which frees UART0 (Serial0) for the XBee.
 // Keep the board still and level during startup calibration.
@@ -99,6 +110,12 @@ Servo           leftBrake;
 Servo           rightBrake;
 File            logFile;
 
+bool imuOk, baroOk, inaOk, sdOk;
+bool loraConnected = false;
+
+enum class Mode { Start, Stop };
+Mode mode = Mode::Start;
+
 float gyroBiasDps = 0.0f;
 float rollTrimDeg = 0.0f;
 float rollDeg     = 0.0f;
@@ -133,11 +150,11 @@ void setBrakes(float left, float right) {
 
 // ---------- IMU ----------
 
-void imuWrite(uint8_t reg, uint8_t value) {
+bool imuWrite(uint8_t reg, uint8_t value) {
     Wire.beginTransmission(IMU_I2C_ADDR);
     Wire.write(reg);
     Wire.write(value);
-    Wire.endTransmission();
+    return Wire.endTransmission() == 0;
 }
 
 // Roll from the accelerometer (deg) and roll rate from the gyro (deg/s).
@@ -185,11 +202,8 @@ float gnssSteer() {
     return s;
 }
 
-// "lat,lon" or "here" from any of the serial links.
-void readRefInput(Stream &in) {
-    if (!in.available()) return;
-    String line = in.readStringUntil('\n');
-    line.trim();
+// "lat,lon" or "here"; replies go back on the link it came from.
+void applyRef(Stream &in, const String &line) {
     if (line == "here") {
         if (!fixOk()) {
             in.println("No GNSS fix yet");
@@ -211,6 +225,64 @@ void readRefInput(Stream &in) {
     in.print(refLat, 6);
     in.print(",");
     in.println(refLon, 6);
+}
+
+void readRefInput(Stream &in) {
+    if (!in.available()) return;
+    String line = in.readStringUntil('\n');
+    line.trim();
+    applyRef(in, line);
+}
+
+// ACK,IMU=1,BARO=1,INA=1,SD=1,GNSS=1,FIX=0,REF=lat,lon
+void sendAck() {
+    loraSerial.print("ACK,IMU=");
+    loraSerial.print(imuOk);
+    loraSerial.print(",BARO=");
+    loraSerial.print(baroOk);
+    loraSerial.print(",INA=");
+    loraSerial.print(inaOk);
+    loraSerial.print(",SD=");
+    loraSerial.print(sdOk);
+    loraSerial.print(",GNSS=");
+    loraSerial.print(gps.charsProcessed() > 0);  // receiving NMEA
+    loraSerial.print(",FIX=");
+    loraSerial.print(fixOk());
+    loraSerial.print(",REF=");
+    loraSerial.print(refLat, 6);
+    loraSerial.print(",");
+    loraSerial.println(refLon, 6);
+}
+
+void calibrate();
+
+// Nothing goes out on LoRa until "CONNECT" arrives; the ACK is always the first packet.
+void readLora() {
+    if (!loraSerial.available()) return;
+    String line = loraSerial.readStringUntil('\n');
+    line.trim();
+    if (line == "CONNECT") {
+        sendAck();
+        loraConnected = true;
+        Serial.println("LoRa connected, ACK sent");
+        return;
+    }
+    if (!loraConnected) return;
+
+    if (line == "START") {
+        mode = Mode::Start;
+        loraSerial.println("ACK,START");
+        Serial.println("Mode: START");
+    } else if (line == "STOP") {
+        mode = Mode::Stop;
+        loraSerial.println("ACK,STOP");
+        Serial.println("Mode: STOP (standby)");
+    } else if (line == "RECALIBRATE") {
+        calibrate();
+        loraSerial.println("ACK,RECALIBRATE");
+    } else {
+        applyRef(loraSerial, line);
+    }
 }
 
 // ---------- Sensors ----------
@@ -277,41 +349,72 @@ void beep(uint16_t ms) {
 
 // ---------- Setup and loop ----------
 
+void printInit(const char *name, bool ok) {
+    Serial.print(name);
+    Serial.println(ok ? ": OK" : ": FAIL");
+}
+
 void setup() {
     Serial.begin(115200);
-    gnssSerial.begin(GNSS_BAUD, SERIAL_8N1, PIN_GNSS_RX, PIN_GNSS_TX);
-    loraSerial.begin(LORA_BAUD, SERIAL_8N1, PIN_LORA_RX, PIN_LORA_TX);
-    xbeeSerial.begin(XBEE_BAUD, SERIAL_8N1, PIN_XBEE_RX, PIN_XBEE_TX);
-
     pinMode(PIN_BUZZER, OUTPUT);
-    analogReadResolution(12);
 
+    // 1. Servos first so the brakes sit at neutral during the rest of startup
     leftBrake.attach(PIN_LEFT_BRAKE);
     rightBrake.attach(PIN_RIGHT_BRAKE);
     setBrakes(0.0f, 0.0f);
+    Serial.println("Servos: neutral");
 
+    // 2. I2C bus and sensors
     Wire.begin(PIN_SDA, PIN_SCL);
     Wire.setClock(400000);
 
-    imuWrite(REG_PWR_MGMT_1, 0x01);   // wake, gyro clock
+    imuOk = imuWrite(REG_PWR_MGMT_1, 0x01);   // wake, gyro clock
     delay(100);
-    imuWrite(REG_CONFIG, 0x03);       // DLPF ~44 Hz
-    imuWrite(REG_GYRO_CONFIG, 0x08);  // +/-500 deg/s
+    imuOk = imuOk && imuWrite(REG_CONFIG, 0x03)         // DLPF ~44 Hz
+                  && imuWrite(REG_GYRO_CONFIG, 0x08);   // +/-500 deg/s
+    printInit("IMU (MPU-9250)", imuOk);
 
-    bmp.begin_I2C(BARO_I2C_ADDR);
+    baroOk = bmp.begin_I2C(BARO_I2C_ADDR);
     bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_2X);
     bmp.setPressureOversampling(BMP3_OVERSAMPLING_8X);
     bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_COEFF_3);
     bmp.setOutputDataRate(BMP3_ODR_50_HZ);
+    printInit("Barometer (BMP390L)", baroOk);
 
-    ina.begin(INA_I2C_ADDR);
+    inaOk = ina.begin(INA_I2C_ADDR);
+    printInit("Current sensor (INA260)", inaOk);
 
+    // 3. UV sensor (analog)
+    analogReadResolution(12);
+    Serial.println("UV sensor (ML8511): analog on GPIO 7");
+
+    // 4. GNSS
+    gnssSerial.begin(GNSS_BAUD, SERIAL_8N1, PIN_GNSS_RX, PIN_GNSS_TX);
+    Serial.println("GNSS (L89HA): Serial1 started");
+
+    // 5. Radios
+    loraSerial.begin(LORA_BAUD, SERIAL_8N1, PIN_LORA_RX, PIN_LORA_TX);
+    Serial.println("LoRa (E220): Serial2 started, waiting for CONNECT");
+    xbeeSerial.begin(XBEE_BAUD, SERIAL_8N1, PIN_XBEE_RX, PIN_XBEE_TX);
+    Serial.println("XBee: Serial0 started");
+
+    // 6. SD card last
     SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
-    SD.begin(PIN_SD_CS);
-    logFile = SD.open("/log.csv", FILE_APPEND);
-    logFile.println("time_ms,lat,lon,sats,gnss_alt_m,alt_m,pressure_hpa,temp_c,roll_deg,dist_m,bearing_deg,steer,left,right,bus_v,current_ma,uv_mw_cm2");
-    logFile.flush();
+    sdOk = SD.begin(PIN_SD_CS);
+    if (sdOk) {
+        logFile = SD.open("/log.csv", FILE_APPEND);
+        logFile.println("time_ms,lat,lon,sats,gnss_alt_m,alt_m,pressure_hpa,temp_c,roll_deg,dist_m,bearing_deg,steer,left,right,bus_v,current_ma,uv_mw_cm2");
+        logFile.flush();
+    }
+    printInit("SD card", sdOk);
 
+    calibrate();
+    beep(200);
+}
+
+// Gyro bias, level roll trim and ground pressure. Brakes held at neutral.
+void calibrate() {
+    setBrakes(0.0f, 0.0f);
     Serial.println("Calibrating - keep the board still and level");
     float rollSum     = 0.0f;
     float rateSum     = 0.0f;
@@ -337,14 +440,14 @@ void setup() {
     Serial.print(" Ground hPa:");
     Serial.println(groundHpa, 2);
 
-    beep(200);
-    lastUs = micros();
+    rollDeg = 0.0f;
+    lastUs  = micros();
 }
 
 void loop() {
     while (gnssSerial.available()) gps.encode(gnssSerial.read());
     readRefInput(Serial);
-    readRefInput(loraSerial);
+    readLora();
     readRefInput(xbeeSerial);
 
     uint32_t now = micros();
@@ -372,14 +475,16 @@ void loop() {
     if (millis() - lastLogMs >= LOG_PERIOD_MS) {
         lastLogMs = millis();
         readSensors();
-        printRecord(logFile);
-        logFile.flush();
+        if (sdOk) {
+            printRecord(logFile);
+            logFile.flush();
+        }
         printRecord(Serial);
     }
 
-    if (millis() - lastTelemetryMs >= TELEMETRY_PERIOD_MS) {
+    if (mode == Mode::Start && millis() - lastTelemetryMs >= TELEMETRY_PERIOD_MS) {
         lastTelemetryMs = millis();
-        printRecord(loraSerial);
+        if (loraConnected) printRecord(loraSerial);
         printRecord(xbeeSerial);
     }
 }
