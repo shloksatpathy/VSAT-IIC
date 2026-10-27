@@ -53,6 +53,26 @@ On every control cycle (50 Hz):
 
 `geo`, `altitude` and `guidance` use no Arduino code, so they can be tested on a PC.
 
+## Pin Connections
+
+ESP32-S3 GPIO numbers, set in `config.h`.
+
+| Device | Device pin | ESP32-S3 pin | Notes |
+| --- | --- | --- | --- |
+| IMU (MPU-9250) | SDA | GPIO 8 | I2C, address `0x68` (AD0 to GND or unconnected) |
+| IMU (MPU-9250) | SCL | GPIO 9 | I2C, 400 kHz |
+| Barometer (BMP280) | SDA / SCL | GPIO 8 / GPIO 9 | Same I2C bus, address `0x76` |
+| GNSS | TX | GPIO 15 (Serial1 RX) | 9600 baud; `Serial1` default pins on the ESP32-S3 core |
+| GNSS | RX | GPIO 16 (Serial1 TX) | Optional, the code only reads |
+| Primary cutter | MOSFET gate | GPIO 4 | Nichrome / pyro, HIGH = fire |
+| Canopy release servo | Signal | GPIO 5 | |
+| Left brake servo | Signal | GPIO 12 | 1100 µs neutral, 1900 µs full |
+| Right brake servo | Signal | GPIO 13 | 1900 µs neutral, 1100 µs full |
+| Servo power switch | MOSFET gate | GPIO 7 | HIGH = servos on |
+| Ejection switch | Switch | Not fitted | Active LOW to GND; set `PIN_EJECTION_SWITCH` to use |
+
+Sensors take 3.3 V and GND. Power the servos from a separate supply that can deliver their stall current, with its GND tied to the ESP32's GND.
+
 ## Changes from the Original Pseudocode
 
 - **Brake direction is flipped.** The pseudocode pulled the left brake when the target was to the right. On a parafoil that turns *away* from the target, so this code pulls the brake on the side of the turn.

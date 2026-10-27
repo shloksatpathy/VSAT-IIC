@@ -26,6 +26,7 @@ The main MCU coordinates all subsystems. It reads the sensors, runs the control 
   - [Communication](#5-communication)
   - [Failsafes](#6-failsafes)
 - [Hardware Components](#hardware-components)
+- [Pin Connections](#pin-connections)
 - [Arduino Libraries](#arduino-libraries)
 - [Repository Structure](#repository-structure)
 - [Getting Started](#getting-started)
@@ -171,6 +172,57 @@ Safety logic that detects faults and moves the system into a safe state.
 > - **IMU:** the drivers in [`gyro/`](gyro/) and [`recovery/`](recovery/) were written for an MPU6050. The MPU-9250's accel/gyro core (MPU-6500) uses the same registers, so they should work with it. Confirm this on the bench. The AK8963 magnetometer isn't used yet. Adding it will give the recovery guidance an absolute heading.
 > - **Barometer:** [`recovery/`](recovery/) still reads a BMP280. It needs porting to the MS5611.
 > - **Servos:** on the ESP32-S3, use the `ESP32Servo` library in place of `Servo`.
+
+---
+
+## Pin Connections
+
+All pins are ESP32-S3 GPIO numbers, taken from each sketch's code.
+
+### Recovery (`recovery/`)
+
+| Device | Device pin | ESP32-S3 pin | Notes |
+| --- | --- | --- | --- |
+| IMU (MPU-9250) | SDA | GPIO 8 | I2C, address `0x68` (AD0 to GND or unconnected) |
+| IMU (MPU-9250) | SCL | GPIO 9 | I2C, 400 kHz |
+| Barometer (BMP280) | SDA / SCL | GPIO 8 / GPIO 9 | Same I2C bus, address `0x76` |
+| GNSS | TX | GPIO 15 (Serial1 RX) | 9600 baud; `Serial1` default pins on the ESP32-S3 core |
+| GNSS | RX | GPIO 16 (Serial1 TX) | Optional, the code only reads |
+| Primary cutter | MOSFET gate | GPIO 4 | Nichrome / pyro, HIGH = fire |
+| Canopy release servo | Signal | GPIO 5 | |
+| Left brake servo | Signal | GPIO 12 | 1100 µs neutral, 1900 µs full |
+| Right brake servo | Signal | GPIO 13 | 1900 µs neutral, 1100 µs full |
+| Servo power switch | MOSFET gate | GPIO 7 | HIGH = servos on |
+| Ejection switch | Switch | Not fitted | Active LOW to GND; set `PIN_EJECTION_SWITCH` to use |
+
+### Brake bench test (`brake_test/`)
+
+| Device | Device pin | ESP32-S3 pin | Notes |
+| --- | --- | --- | --- |
+| IMU (MPU-9250) | SDA | GPIO 8 | I2C, address `0x68` |
+| IMU (MPU-9250) | SCL | GPIO 9 | |
+| GNSS | TX | GPIO 18 (Serial1 RX) | 9600 baud, set in `gnss.cpp` |
+| GNSS | RX | GPIO 17 (Serial1 TX) | Optional, the code only reads |
+| Left brake servo | Signal | GPIO 12 | |
+| Right brake servo | Signal | GPIO 13 | |
+| Servo power switch | MOSFET gate | GPIO 7 | HIGH = servos on |
+
+`brake_test_simple/` uses the same IMU and servo pins, without GNSS.
+
+### Gyro attitude control (`gyro/`)
+
+| Device | Device pin | ESP32-S3 pin | Notes |
+| --- | --- | --- | --- |
+| IMU (MPU-9250) | SDA / SCL | GPIO 8 / GPIO 9 | I2C, address `0x68` |
+| Gimbal roll servo | Signal | GPIO 9 | **Clashes with SCL**, needs moving |
+| Gimbal pitch servo | Signal | GPIO 10 | |
+| Yaw servo | Signal | GPIO 11 | |
+| Flywheel ESC | Signal | GPIO 6 | |
+
+### Power and ground
+
+- IMU, barometer and GNSS: VCC to 3.3 V (GNSS to 5 V only if the module is rated for it), GND to GND.
+- Servos: power them from a separate supply that can deliver their stall current, not the ESP32's 3.3 V pin. Connect the servo supply's GND to the ESP32's GND.
 
 ---
 
