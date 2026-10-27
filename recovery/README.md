@@ -55,23 +55,25 @@ On every control cycle (50 Hz):
 
 ## Pin Connections
 
-ESP32-S3 GPIO numbers, set in `config.h`.
+The board column is from the board schematic (EasyEDA `Sheet_1`, rev 1.0, 2026-10-05). The code column is what `config.h` sets today. All pins are ESP32-S3 GPIO numbers.
 
-| Device | Device pin | ESP32-S3 pin | Notes |
+| Device | Board pin | `config.h` pin | Status |
 | --- | --- | --- | --- |
-| IMU (MPU-9250) | SDA | GPIO 8 | I2C, address `0x68` (AD0 to GND or unconnected) |
-| IMU (MPU-9250) | SCL | GPIO 9 | I2C, 400 kHz |
-| Barometer (BMP280) | SDA / SCL | GPIO 8 / GPIO 9 | Same I2C bus, address `0x76` |
-| GNSS | TX | GPIO 15 (Serial1 RX) | 9600 baud; `Serial1` default pins on the ESP32-S3 core |
-| GNSS | RX | GPIO 16 (Serial1 TX) | Optional, the code only reads |
-| Primary cutter | MOSFET gate | GPIO 4 | Nichrome / pyro, HIGH = fire |
-| Canopy release servo | Signal | GPIO 5 | |
-| Left brake servo | Signal | GPIO 12 | 1100 µs neutral, 1900 µs full |
-| Right brake servo | Signal | GPIO 13 | 1900 µs neutral, 1100 µs full |
-| Servo power switch | MOSFET gate | GPIO 7 | HIGH = servos on |
-| Ejection switch | Switch | Not fitted | Active LOW to GND; set `PIN_EJECTION_SWITCH` to use |
+| IMU (MPU-9250) SDA / SCL | GPIO 8 / GPIO 9 | GPIO 8 / GPIO 9 (`Wire` default), address `0x68` | ✅ Matches |
+| Barometer SDA / SCL | GPIO 8 / GPIO 9 (MS5611 and BMP390L) | GPIO 8 / GPIO 9, BMP280 at `0x76` | ⚠️ Pins match; driver is still BMP280 |
+| GNSS (L89HA) TX / RX | GPIO 5 / GPIO 4 | `Serial1` default: RX 15, TX 16, 9600 baud | ❌ 15 / 16 is the XBee on the board |
+| Left brake servo | One of S1–S5 (GPIO 1, 38, 21, 48, 47) | GPIO 12 | ❌ 12 is SD SCLK |
+| Right brake servo | One of S1–S5 | GPIO 13 | ❌ 13 is SD DO |
+| Canopy release servo | One of S1–S5 | GPIO 5 | ❌ 5 is GNSS TX |
+| Primary cutter | Not on the board | GPIO 4 | ❌ 4 is GNSS RX |
+| Servo power switch | Not on the board | GPIO 7 | ❌ 7 is the UV sensor |
+| Ejection switch | Not on the board | Not fitted (`-1`) | ✅ |
 
-Sensors take 3.3 V and GND. Power the servos from a separate supply that can deliver their stall current, with its GND tied to the ESP32's GND.
+The schematic doesn't say which servo header (S1–S5) is which servo. Before flashing, pick the brake and canopy headers and update the pins in `config.h`, and pass the GNSS pins to `GNSS_SERIAL.begin()` in `sensors.cpp`.
+
+**Servo signal wiring:** on the schematic, each servo signal goes through an IRF540N MOSFET (Q1–Q5). That can't drive a servo from a 3.3 V GPIO. Wire GPIO → 330 Ω → servo signal instead. See [Pin Connections](../README.md#pin-connections) in the main README for the full board wiring.
+
+**Power:** sensors and GNSS run on 3.3 V (AMS1117-3.3). Servos run on the 5 V rail (AMS1117-5.0 from the 11.2 V battery). All grounds are common.
 
 ## Changes from the Original Pseudocode
 

@@ -177,52 +177,66 @@ Safety logic that detects faults and moves the system into a safe state.
 
 ## Pin Connections
 
-All pins are ESP32-S3 GPIO numbers, taken from each sketch's code.
+Taken from the board schematic (EasyEDA `Sheet_1`, rev 1.0, 2026-10-05). The MCU on the schematic is an **ESP32-S3-DevKitC-1-N16R8**. All pins are ESP32-S3 GPIO numbers.
 
-### Recovery (`recovery/`)
-
-| Device | Device pin | ESP32-S3 pin | Notes |
-| --- | --- | --- | --- |
-| IMU (MPU-9250) | SDA | GPIO 8 | I2C, address `0x68` (AD0 to GND or unconnected) |
-| IMU (MPU-9250) | SCL | GPIO 9 | I2C, 400 kHz |
-| Barometer (BMP280) | SDA / SCL | GPIO 8 / GPIO 9 | Same I2C bus, address `0x76` |
-| GNSS | TX | GPIO 15 (Serial1 RX) | 9600 baud; `Serial1` default pins on the ESP32-S3 core |
-| GNSS | RX | GPIO 16 (Serial1 TX) | Optional, the code only reads |
-| Primary cutter | MOSFET gate | GPIO 4 | Nichrome / pyro, HIGH = fire |
-| Canopy release servo | Signal | GPIO 5 | |
-| Left brake servo | Signal | GPIO 12 | 1100 µs neutral, 1900 µs full |
-| Right brake servo | Signal | GPIO 13 | 1900 µs neutral, 1100 µs full |
-| Servo power switch | MOSFET gate | GPIO 7 | HIGH = servos on |
-| Ejection switch | Switch | Not fitted | Active LOW to GND; set `PIN_EJECTION_SWITCH` to use |
-
-### Brake bench test (`brake_test/`)
+### Board wiring
 
 | Device | Device pin | ESP32-S3 pin | Notes |
 | --- | --- | --- | --- |
-| IMU (MPU-9250) | SDA | GPIO 8 | I2C, address `0x68` |
-| IMU (MPU-9250) | SCL | GPIO 9 | |
-| GNSS | TX | GPIO 18 (Serial1 RX) | 9600 baud, set in `gnss.cpp` |
-| GNSS | RX | GPIO 17 (Serial1 TX) | Optional, the code only reads |
-| Left brake servo | Signal | GPIO 12 | |
-| Right brake servo | Signal | GPIO 13 | |
-| Servo power switch | MOSFET gate | GPIO 7 | HIGH = servos on |
+| IMU (MPU-9250) | SDA / SCL | GPIO 8 / GPIO 9 | I2C, address `0x68`; VCC 3.3 V |
+| Barometer (MS5611) | SDA / SCL | GPIO 8 / GPIO 9 | I2C; VCC 3.3 V |
+| Barometer (BMP390L) | SDA / SCL | GPIO 8 / GPIO 9 | I2C; VCC 3.3 V |
+| Current sensor (INA260) | SDA / SCL | GPIO 8 / GPIO 9 | I2C; VCC 3.3 V |
+| GNSS (7Semi L89HA) | TX / RX | GPIO 5 / GPIO 4 | GNSS TX → ESP RX on 5, GNSS RX ← ESP TX on 4; VCC 3.3 V |
+| LoRa (E220-900T30D) | TXD / RXD | GPIO 18 / GPIO 17 | E220 TXD → ESP RX on 18, E220 RXD ← ESP TX on 17; VCC 3.3 V |
+| LoRa (E220-900T30D) | M0 / M1 / AUX | Not connected | |
+| XBee Pro S2C | TX (DIO13) / RX (DIN) | GPIO 15 / GPIO 16 | VCC 3.3 V |
+| Micro SD (SPI) | CS / DI / DO / SCLK | GPIO 6 / 11 / 13 / 12 | VCC 3.3 V |
+| UV sensor (ML8511) | OUT | GPIO 7 | Analog input; VIN 3.3 V |
+| Servo S1 (header H1) | Signal | GPIO 1 | Through Q1 (IRF540N) |
+| Servo S2 (header H2) | Signal | GPIO 38 | Through Q2 (IRF540N) |
+| Servo S3 (header H3) | Signal | GPIO 21 | Through Q3 (IRF540N) |
+| Servo S4 (header H4) | Signal | GPIO 48 | Through Q4 (IRF540N) |
+| Servo S5 (header H5) | Signal | GPIO 47 | Through Q5 (IRF540N) |
+| Buzzer | + | GPIO 2 | |
+| Solenoid (J5), motor (J4) | Power | No GPIO | J5 on 5 V, J4 on VIN |
 
-`brake_test_simple/` uses the same IMU and servo pins, without GNSS.
+### Power
 
-### Gyro attitude control (`gyro/`)
+| Rail | Source | Feeds |
+| --- | --- | --- |
+| VIN (11.2 V, J3) | Battery | 5 V regulator, motor (J4) |
+| 5 V | AMS1117-5.0 module from VIN | ESP32 5V pin, servo headers H1–H5, solenoid (J5), 3.3 V regulator |
+| 3.3 V | AMS1117-3.3 module from 5 V | All sensors, GNSS, LoRa, XBee, SD card |
 
-| Device | Device pin | ESP32-S3 pin | Notes |
+All grounds are common.
+
+### Code vs board
+
+The firmware pins were written before the schematic, so several don't match the board yet.
+
+| Code | Code pin | Board | Status |
 | --- | --- | --- | --- |
-| IMU (MPU-9250) | SDA / SCL | GPIO 8 / GPIO 9 | I2C, address `0x68` |
-| Gimbal roll servo | Signal | GPIO 9 | **Clashes with SCL**, needs moving |
-| Gimbal pitch servo | Signal | GPIO 10 | |
-| Yaw servo | Signal | GPIO 11 | |
-| Flywheel ESC | Signal | GPIO 6 | |
+| I2C (all sketches) | SDA 8, SCL 9 | SDA 8, SCL 9 | ✅ Matches |
+| `brake_test/` GNSS | RX 18, TX 17 | GNSS on 5 / 4; 18 / 17 is LoRa | ❌ |
+| `recovery/` GNSS | `Serial1` default: RX 15, TX 16 | GNSS on 5 / 4; 15 / 16 is XBee | ❌ |
+| `recovery/`, `brake_test/` brake servos | GPIO 12, 13 | Servos on 1, 38, 21, 48, 47; 12 / 13 are SD SCLK / DO | ❌ |
+| `recovery/` canopy release servo | GPIO 5 | GNSS TX | ❌ |
+| `recovery/` primary cutter | GPIO 4 | GNSS RX; no cutter on the board | ❌ |
+| `recovery/`, `brake_test/` servo power switch | GPIO 7 | UV sensor; no servo power switch on the board | ❌ |
+| `recovery/` barometer | BMP280 at `0x76` | MS5611 and BMP390L | ❌ Driver needs porting |
+| `gyro/` gimbal roll servo | GPIO 9 | I2C SCL | ❌ |
+| `gyro/` gimbal pitch / yaw servo | GPIO 10 / 11 | 11 is SD DI; 10 is free | ❌ |
+| `gyro/` flywheel ESC | GPIO 6 | SD CS | ❌ |
+| `communication/` E220 (ESP32-S3) | RX 18, TX 17, M0 5, M1 6, AUX 7 | RX 18, TX 17; M0 / M1 / AUX not connected | ⚠️ TX/RX match; M0 / M1 / AUX don't |
+| `communication/sensor_test.ino` GNSS | RX 18, TX 17 at 115200 | GNSS on 5 / 4 | ❌ |
 
-### Power and ground
+### Schematic notes
 
-- IMU, barometer and GNSS: VCC to 3.3 V (GNSS to 5 V only if the module is rated for it), GND to GND.
-- Servos: power them from a separate supply that can deliver their stall current, not the ESP32's 3.3 V pin. Connect the servo supply's GND to the ESP32's GND.
+- **Servo signals go through IRF540N MOSFETs (Q1–Q5).** Each drain drives a servo signal line with no pull-up shown, so the signal can't go high and the PWM would be inverted. The IRF540N also needs about 10 V on the gate to switch fully, and the ESP32 gives 3.3 V. Servos accept a 3.3 V signal directly, so GPIO → 330 Ω → servo signal is enough. To cut servo power after landing, switch the servo 5 V rail with one logic-level MOSFET instead.
+- **E220 M0 / M1 must not float.** They have to be LOW for normal transmit/receive. Tie them to GND, or to two free GPIOs to run the config sketch on this board.
+- **Three UART modules (GNSS, LoRa, XBee) use all three ESP32-S3 UARTs.** Enable **USB CDC On Boot** and use the board's USB port for the Serial Monitor, so `Serial0`, `Serial1` and `Serial2` are all free for the modules.
+- **N16R8 variant:** the octal PSRAM uses GPIO 35–37, which none of the wiring uses. The Hardware Components table above lists the N8R2.
 
 ---
 
