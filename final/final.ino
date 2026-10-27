@@ -3,24 +3,22 @@
 //
 // Brakes: filtered roll (MPU-9250) plus GNSS steering toward the reference
 // location, same as brake_test. Sensors are logged to SD at 10 Hz and sent
-// over LoRa and XBee at 1 Hz.
+// over LoRa at 1 Hz.
 //
 // Reference location: set TARGET_LAT/TARGET_LON, or send "lat,lon" or "here"
-// over USB Serial, LoRa or XBee.
+// over USB Serial or LoRa.
 //
 // Init order: servos (brakes neutral), I2C sensors (IMU, barometer, INA260),
-// UV, GNSS, LoRa, XBee, SD card last. Then IMU/barometer calibration.
+// UV, GNSS, LoRa, SD card last. Then IMU/barometer calibration.
 //
 // LoRa link: the ground station sends "CONNECT". The CanSat replies with an
 // ACK packet carrying the init status, and only then starts LoRa telemetry.
 // Sending "CONNECT" again repeats the ACK. After that LoRa keeps listening for:
-//   START        send telemetry on LoRa and XBee (default)
+//   START        send telemetry on LoRa (default)
 //   STOP         standby: no telemetry; brakes and SD logging keep running
 //   RECALIBRATE  brakes neutral, recalibrate IMU and barometer, back to the previous mode
 // Each command is answered with "ACK,<command>".
 //
-// Arduino IDE: Tools -> USB CDC On Boot -> Enabled, and use the board's USB
-// port. Serial is then USB, which frees UART0 (Serial0) for the XBee.
 // Keep the board still and level during startup calibration.
 
 #include <Wire.h>
@@ -44,11 +42,6 @@ constexpr uint32_t GNSS_BAUD   = 115200;
 constexpr uint8_t  PIN_LORA_RX = 18;  // ESP RX <- E220 TXD
 constexpr uint8_t  PIN_LORA_TX = 17;  // ESP TX -> E220 RXD
 constexpr uint32_t LORA_BAUD   = 9600;
-
-// XBee Pro S2C on Serial0
-constexpr uint8_t  PIN_XBEE_RX = 15;  // ESP RX <- XBee TX
-constexpr uint8_t  PIN_XBEE_TX = 16;  // ESP TX -> XBee RX
-constexpr uint32_t XBEE_BAUD   = 9600;
 
 // Micro SD (SPI)
 constexpr uint8_t PIN_SD_CS   = 6;
@@ -97,11 +90,10 @@ constexpr uint16_t CALIB_SAMPLES       = 500;
 // Rates
 constexpr uint32_t LOOP_PERIOD_US      = 10000;  // 100 Hz control
 constexpr uint32_t LOG_PERIOD_MS       = 100;    // 10 Hz sensors + SD
-constexpr uint32_t TELEMETRY_PERIOD_MS = 1000;   // 1 Hz LoRa + XBee
+constexpr uint32_t TELEMETRY_PERIOD_MS = 1000;   // 1 Hz LoRa
 
 HardwareSerial &gnssSerial = Serial1;
 HardwareSerial &loraSerial = Serial2;
-HardwareSerial &xbeeSerial = Serial0;
 
 TinyGPSPlus     gps;
 Adafruit_BMP3XX bmp;
@@ -392,11 +384,9 @@ void setup() {
     gnssSerial.begin(GNSS_BAUD, SERIAL_8N1, PIN_GNSS_RX, PIN_GNSS_TX);
     Serial.println("GNSS (L89HA): Serial1 started");
 
-    // 5. Radios
+    // 5. LoRa
     loraSerial.begin(LORA_BAUD, SERIAL_8N1, PIN_LORA_RX, PIN_LORA_TX);
     Serial.println("LoRa (E220): Serial2 started, waiting for CONNECT");
-    xbeeSerial.begin(XBEE_BAUD, SERIAL_8N1, PIN_XBEE_RX, PIN_XBEE_TX);
-    Serial.println("XBee: Serial0 started");
 
     // 6. SD card last
     SPI.begin(PIN_SD_SCK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
@@ -448,7 +438,6 @@ void loop() {
     while (gnssSerial.available()) gps.encode(gnssSerial.read());
     readRefInput(Serial);
     readLora();
-    readRefInput(xbeeSerial);
 
     uint32_t now = micros();
     if (now - lastUs < LOOP_PERIOD_US) return;
@@ -482,9 +471,8 @@ void loop() {
         printRecord(Serial);
     }
 
-    if (mode == Mode::Start && millis() - lastTelemetryMs >= TELEMETRY_PERIOD_MS) {
+    if (loraConnected && mode == Mode::Start && millis() - lastTelemetryMs >= TELEMETRY_PERIOD_MS) {
         lastTelemetryMs = millis();
-        if (loraConnected) printRecord(loraSerial);
-        printRecord(xbeeSerial);
+        printRecord(loraSerial);
     }
 }

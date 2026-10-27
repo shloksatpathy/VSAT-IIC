@@ -61,7 +61,7 @@ The board column is from the board schematic (EasyEDA `Sheet_1`, rev 1.0, 2026-1
 | --- | --- | --- | --- |
 | IMU (MPU-9250) SDA / SCL | GPIO 8 / GPIO 9 | GPIO 8 / GPIO 9 (`Wire` default), address `0x68` | ✅ Matches |
 | Barometer SDA / SCL | GPIO 8 / GPIO 9 (MS5611 and BMP390L) | GPIO 8 / GPIO 9, BMP280 at `0x76` | ⚠️ Pins match; driver is still BMP280 |
-| GNSS (L89HA) TX / RX | GPIO 5 / GPIO 4 | `Serial1` default: RX 15, TX 16, 9600 baud | ❌ 15 / 16 is the XBee on the board |
+| GNSS (L89HA) TX / RX | GPIO 5 / GPIO 4 | `Serial1` default: RX 15, TX 16, 9600 baud | ❌ GNSS is on 5 / 4 |
 | Left brake servo | One of S1–S5 (GPIO 1, 38, 21, 48, 47) | GPIO 12 | ❌ 12 is SD SCLK |
 | Right brake servo | One of S1–S5 | GPIO 13 | ❌ 13 is SD DO |
 | Canopy release servo | One of S1–S5 | GPIO 5 | ❌ 5 is GNSS TX |

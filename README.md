@@ -153,7 +153,7 @@ The ground station sends each command as a text line ending in a newline. The Ca
 | Command | What the CanSat does | Reply |
 | --- | --- | --- |
 | `CONNECT` | Opens the link. Sending it again repeats the ACK | `ACK,IMU=1,BARO=1,INA=1,SD=1,GNSS=1,FIX=0,REF=<lat>,<lon>` |
-| `START` (default) | Sends telemetry at 1 Hz on LoRa and XBee | `ACK,START` |
+| `START` (default) | Sends telemetry at 1 Hz on LoRa | `ACK,START` |
 | `STOP` | Standby: no telemetry. Brakes and SD logging keep running | `ACK,STOP` |
 | `RECALIBRATE` | Brakes to neutral, then recalibrates gyro bias, level roll trim and ground pressure (about 1.5 s). Returns to the previous mode | `ACK,RECALIBRATE` (when done) |
 | `<lat>,<lon>` | Sets the reference (target) location | `Reference set: <lat>,<lon>` |
@@ -216,7 +216,6 @@ Taken from the board schematic (EasyEDA `Sheet_1`, rev 1.0, 2026-10-05). The MCU
 | LoRa (E220-900T30D) | TXD / RXD | GPIO 18 / GPIO 17 | E220 TXD → ESP RX on 18, E220 RXD ← ESP TX on 17; VCC 3.3 V |
 | LoRa (E220-900T30D) | M0 / M1 | GND | Tied to GND on the PCB, so the module is always in normal mode |
 | LoRa (E220-900T30D) | AUX | Not connected | |
-| XBee Pro S2C | TX (DIO13) / RX (DIN) | GPIO 15 / GPIO 16 | VCC 3.3 V |
 | Micro SD (SPI) | CS / DI / DO / SCLK | GPIO 6 / 11 / 13 / 12 | VCC 3.3 V |
 | UV sensor (ML8511) | OUT | GPIO 7 | Analog input; VIN 3.3 V |
 | Servo S1 (header H1) | Signal | GPIO 1 | Through Q1 (IRF540N) |
@@ -233,7 +232,7 @@ Taken from the board schematic (EasyEDA `Sheet_1`, rev 1.0, 2026-10-05). The MCU
 | --- | --- | --- |
 | VIN (11.2 V, J3) | Battery | 5 V regulator, motor (J4) |
 | 5 V | AMS1117-5.0 module from VIN | ESP32 5V pin, servo headers H1–H5, solenoid (J5), 3.3 V regulator |
-| 3.3 V | AMS1117-3.3 module from 5 V | All sensors, GNSS, LoRa, XBee, SD card |
+| 3.3 V | AMS1117-3.3 module from 5 V | All sensors, GNSS, LoRa, SD card |
 
 All grounds are common.
 
@@ -245,7 +244,7 @@ The firmware pins were written before the schematic, so several don't match the 
 | --- | --- | --- | --- |
 | I2C (all sketches) | SDA 8, SCL 9 | SDA 8, SCL 9 | ✅ Matches |
 | `brake_test/` GNSS | RX 18, TX 17 | GNSS on 5 / 4; 18 / 17 is LoRa | ❌ |
-| `recovery/` GNSS | `Serial1` default: RX 15, TX 16 | GNSS on 5 / 4; 15 / 16 is XBee | ❌ |
+| `recovery/` GNSS | `Serial1` default: RX 15, TX 16 | GNSS on 5 / 4 | ❌ |
 | `recovery/`, `brake_test/` brake servos | GPIO 12, 13 | Servos on 1, 38, 21, 48, 47; 12 / 13 are SD SCLK / DO | ❌ |
 | `recovery/` canopy release servo | GPIO 5 | GNSS TX | ❌ |
 | `recovery/` primary cutter | GPIO 4 | GNSS RX; no cutter on the board | ❌ |
@@ -260,7 +259,6 @@ The firmware pins were written before the schematic, so several don't match the 
 ### Schematic notes
 
 - **Servo signals go through IRF540N MOSFETs (Q1–Q5).** Each drain drives a servo signal line with no pull-up shown, so the signal can't go high and the PWM would be inverted. The IRF540N also needs about 10 V on the gate to switch fully, and the ESP32 gives 3.3 V. Servos accept a 3.3 V signal directly, so GPIO → 330 Ω → servo signal is enough. To cut servo power after landing, switch the servo 5 V rail with one logic-level MOSFET instead.
-- **Three UART modules (GNSS, LoRa, XBee) use all three ESP32-S3 UARTs.** Enable **USB CDC On Boot** and use the board's USB port for the Serial Monitor, so `Serial0`, `Serial1` and `Serial2` are all free for the modules.
 - **N16R8 variant:** the octal PSRAM uses GPIO 35–37, which none of the wiring uses. The Hardware Components table above lists the N8R2.
 
 ### E220 configuration (breadboard)
