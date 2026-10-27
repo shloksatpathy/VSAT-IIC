@@ -146,6 +146,31 @@ A **LoRa** radio link carries telemetry to the ground station.
 - Transmission scheduling
 - Ground-station receive and decode
 
+#### LoRa commands ([`final/final.ino`](final/final.ino))
+
+The ground station sends each command as a text line ending in a newline. The CanSat sends nothing on LoRa until it receives `CONNECT`, so the ACK is always the first packet.
+
+| Command | What the CanSat does | Reply |
+| --- | --- | --- |
+| `CONNECT` | Opens the link. Sending it again repeats the ACK | `ACK,IMU=1,BARO=1,INA=1,SD=1,GNSS=1,FIX=0,REF=<lat>,<lon>` |
+| `START` (default) | Sends telemetry at 1 Hz on LoRa and XBee | `ACK,START` |
+| `STOP` | Standby: no telemetry. Brakes and SD logging keep running | `ACK,STOP` |
+| `RECALIBRATE` | Brakes to neutral, then recalibrates gyro bias, level roll trim and ground pressure (about 1.5 s). Returns to the previous mode | `ACK,RECALIBRATE` (when done) |
+| `<lat>,<lon>` | Sets the reference (target) location | `Reference set: <lat>,<lon>` |
+| `here` | Sets the reference to the current GNSS position | `Reference set: <lat>,<lon>`, or `No GNSS fix yet` |
+
+Every command except `CONNECT` is ignored until the link is open.
+
+**ACK fields:** `IMU`, `BARO`, `INA` and `SD` are the init results (1 = OK). `GNSS=1` means NMEA data is arriving, `FIX=1` means a valid fix (at least 4 satellites), and `REF` is the current reference location (`0,0` = not set).
+
+**Telemetry line (CSV):**
+
+```
+time_ms,lat,lon,sats,gnss_alt_m,alt_m,pressure_hpa,temp_c,roll_deg,dist_m,bearing_deg,steer,left,right,bus_v,current_ma,uv_mw_cm2
+```
+
+The same line is logged to `/log.csv` on the SD card at 10 Hz, and printed to USB Serial.
+
 ### 6. Failsafes
 
 Safety logic that detects faults and moves the system into a safe state.
