@@ -1,11 +1,14 @@
 // Brake servo + MPU test for ESP32-S3.
 // Pins and end points copied from recovery/config.h.
 // Filtered roll drives the brakes: tilt left pulls the left brake, tilt right
-// pulls the right brake. Keep the board still and level during startup
+// pulls the right brake. GNSS steering toward the reference location (gnss.cpp)
+// is added on top. Keep the board still and level during startup
 // calibration; that position becomes zero roll.
 
 #include <Wire.h>
 #include <ESP32Servo.h>
+
+#include "gnss.h"
 
 constexpr uint8_t  PIN_LEFT_BRAKE         = 12;
 constexpr uint16_t LEFT_BRAKE_NEUTRAL_US  = 1100;
@@ -30,6 +33,7 @@ constexpr float    DEADBAND_DEG        = 2.0f;   // roll ignored inside +/- this
 constexpr float    FULL_BRAKE_ROLL_DEG = 45.0f;  // roll (past the deadband) at which a brake is fully pulled
 constexpr uint16_t CALIB_SAMPLES       = 500;
 constexpr uint32_t LOOP_PERIOD_US      = 10000;  // 100 Hz
+constexpr uint32_t PRINT_PERIOD_MS     = 100;    // 10 Hz
 
 Servo leftBrake;
 Servo rightBrake;
@@ -38,6 +42,7 @@ float gyroBiasDps = 0.0f;
 float rollTrimDeg = 0.0f;
 float rollDeg     = 0.0f;
 uint32_t lastUs   = 0;
+uint32_t lastPrintMs = 0;
 
 uint16_t fractionToUs(float f, uint16_t neutralUs, uint16_t fullUs) {
     if (f < 0.0f) f = 0.0f;
@@ -104,10 +109,13 @@ void setup() {
     Serial.print(" Gyro bias:");
     Serial.println(gyroBiasDps, 3);
 
+    gnssBegin();
     lastUs = micros();
 }
 
 void loop() {
+    gnssUpdate();
+
     uint32_t now = micros();
     if (now - lastUs < LOOP_PERIOD_US) return;
     float dt = (now - lastUs) * 1e-6f;
@@ -124,10 +132,13 @@ void loop() {
     float cmd = 0.0f;
     if (rollDeg > DEADBAND_DEG)  cmd = (rollDeg - DEADBAND_DEG) / FULL_BRAKE_ROLL_DEG;
     if (rollDeg < -DEADBAND_DEG) cmd = (rollDeg + DEADBAND_DEG) / FULL_BRAKE_ROLL_DEG;
+    cmd += gnssSteer();
     float left  = -cmd;
     float right =  cmd;
     setBrakes(left, right);
 
+    if (millis() - lastPrintMs < PRINT_PERIOD_MS) return;
+    lastPrintMs = millis();
     Serial.print("Acc:");
     Serial.print(accelRoll, 1);
     Serial.print(" Roll:");
@@ -135,5 +146,7 @@ void loop() {
     Serial.print(" L:");
     Serial.print(left < 0 ? 0 : left, 2);
     Serial.print(" R:");
-    Serial.println(right < 0 ? 0 : right, 2);
+    Serial.print(right < 0 ? 0 : right, 2);
+    gnssPrint();
+    Serial.println();
 }
