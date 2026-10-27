@@ -189,7 +189,8 @@ Taken from the board schematic (EasyEDA `Sheet_1`, rev 1.0, 2026-10-05). The MCU
 | Current sensor (INA260) | SDA / SCL | GPIO 8 / GPIO 9 | I2C; VCC 3.3 V |
 | GNSS (7Semi L89HA) | TX / RX | GPIO 5 / GPIO 4 | GNSS TX → ESP RX on 5, GNSS RX ← ESP TX on 4; VCC 3.3 V |
 | LoRa (E220-900T30D) | TXD / RXD | GPIO 18 / GPIO 17 | E220 TXD → ESP RX on 18, E220 RXD ← ESP TX on 17; VCC 3.3 V |
-| LoRa (E220-900T30D) | M0 / M1 / AUX | Not connected | |
+| LoRa (E220-900T30D) | M0 / M1 | GND | Tied to GND on the PCB, so the module is always in normal mode |
+| LoRa (E220-900T30D) | AUX | Not connected | |
 | XBee Pro S2C | TX (DIO13) / RX (DIN) | GPIO 15 / GPIO 16 | VCC 3.3 V |
 | Micro SD (SPI) | CS / DI / DO / SCLK | GPIO 6 / 11 / 13 / 12 | VCC 3.3 V |
 | UV sensor (ML8511) | OUT | GPIO 7 | Analog input; VIN 3.3 V |
@@ -228,15 +229,34 @@ The firmware pins were written before the schematic, so several don't match the 
 | `gyro/` gimbal roll servo | GPIO 9 | I2C SCL | ❌ |
 | `gyro/` gimbal pitch / yaw servo | GPIO 10 / 11 | 11 is SD DI; 10 is free | ❌ |
 | `gyro/` flywheel ESC | GPIO 6 | SD CS | ❌ |
-| `communication/` E220 (ESP32-S3) | RX 18, TX 17, M0 5, M1 6, AUX 7 | RX 18, TX 17; M0 / M1 / AUX not connected | ⚠️ TX/RX match; M0 / M1 / AUX don't |
+| `communication/` E220 config (ESP32-S3) | RX 18, TX 17, M0 5, M1 6, AUX 7 | Not run on the PCB | ✅ Breadboard only, see [E220 configuration](#e220-configuration-breadboard) |
 | `communication/sensor_test.ino` GNSS | RX 18, TX 17 at 115200 | GNSS on 5 / 4 | ❌ |
 
 ### Schematic notes
 
 - **Servo signals go through IRF540N MOSFETs (Q1–Q5).** Each drain drives a servo signal line with no pull-up shown, so the signal can't go high and the PWM would be inverted. The IRF540N also needs about 10 V on the gate to switch fully, and the ESP32 gives 3.3 V. Servos accept a 3.3 V signal directly, so GPIO → 330 Ω → servo signal is enough. To cut servo power after landing, switch the servo 5 V rail with one logic-level MOSFET instead.
-- **E220 M0 / M1 must not float.** They have to be LOW for normal transmit/receive. Tie them to GND, or to two free GPIOs to run the config sketch on this board.
 - **Three UART modules (GNSS, LoRa, XBee) use all three ESP32-S3 UARTs.** Enable **USB CDC On Boot** and use the board's USB port for the Serial Monitor, so `Serial0`, `Serial1` and `Serial2` are all free for the modules.
 - **N16R8 variant:** the octal PSRAM uses GPIO 35–37, which none of the wiring uses. The Hardware Components table above lists the N8R2.
+
+### E220 configuration (breadboard)
+
+M0 and M1 are tied to GND on the PCB, so the E220 can't enter configuration mode there. Configure each E220 on a breadboard before fitting it. The module keeps its settings when powered off.
+
+| E220 pin | ESP32-S3 (`E220_Config_ESP32S3.ino`) | ESP32 DevKit (`E220_Config_ESP32_DevKit.ino`) |
+| --- | --- | --- |
+| TXD | GPIO 18 | GPIO 16 |
+| RXD | GPIO 17 | GPIO 17 |
+| M0 | GPIO 5 | GPIO 18 |
+| M1 | GPIO 6 | GPIO 19 |
+| AUX | GPIO 7 | GPIO 4 |
+| VCC | 3.3 V or 5 V | 3.3 V or 5 V |
+| GND | GND | GND |
+
+1. Flash the config sketch. It sets M0 and M1 HIGH, writes the configuration, and reads it back to the Serial Monitor.
+2. Check the readback: address, channel, Net ID / PAN ID (see [`communication/lora-net-id-pan-id.md`](communication/lora-net-id-pan-id.md)) and UART speed. Do this for both the CanSat and ground-station modules.
+3. Fit the module on the PCB. It starts in normal mode.
+
+The flight code must use the UART speed set during configuration (9600 in the sketch). With AUX not connected, the code can't tell when the module is busy, so leave a short gap between packets.
 
 ---
 
